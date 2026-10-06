@@ -333,7 +333,7 @@ class FlashImage(Screen):
 					st_dev = os.stat(path).st_dev
 					return (os.major(st_dev), os.minor(st_dev)) in diskstats
 
-				diskstats = [(int(x[0]), int(x[1])) for x in [x.split()[0:3] for x in open('/proc/diskstats').readlines()] if x[2].startswith("sd")]
+				diskstats = [(int(x[0]), int(x[1])) for x in [x.split()[0:3] for x in open('/proc/diskstats').readlines()] if x[2].startswith(("sd", "mmcblk"))]
 				if os.path.isdir(path) and checkIfDevice(path, diskstats) and avail(path) > 500:
 					return (path, True)
 				mounts = []
@@ -384,8 +384,11 @@ class FlashImage(Screen):
 				configfile.save()
 				if config.plugins.autobackup.epgcache.value:
 					eEPGCache.getInstance().save()
-				self.containerbackup = Console()
-				self.containerbackup.ePopen("%s%s'%s' %s" % (self.BACKUP_SCRIPT, config.plugins.autobackup.autoinstall.value and " -a " or " ", self.destination, int(config.plugins.autobackup.prevbackup.value)), self.backupsettingsDone)
+				from Plugins.Extensions.AutoBackup import plugin as AutoBackup
+				if AutoBackup.runBackup((self.destination, self.backupsettingsDone)):
+					self.containerbackup = AutoBackup.container
+				else:
+					self.backupsettingsDone(None, 1, None)
 			else:
 				self.session.openWithCallback(self.startDownload, MessageBox, _("Unable to backup settings as the AutoBackup plugin is missing, do you want to continue?"), default=False, simple=True)
 		else:
@@ -470,12 +473,10 @@ class FlashImage(Screen):
 			self.session.openWithCallback(self.abort, MessageBox, _("Flashing image was not successful\n%s") % self.imagename, type=MessageBox.TYPE_ERROR, simple=True)
 
 	def abort(self, reply=None):
-		if self.getImageList or self.containerofgwrite:
+		if self.getImageList or self.containerofgwrite or self.containerbackup:
 			return 0
 		if self.downloader:
 			self.downloader.stop()
-		if self.containerbackup:
-			self.containerbackup.killAll()
 		self.close()
 
 	def ok(self):
